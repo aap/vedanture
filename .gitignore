@@ -1,0 +1,16 @@
+# generated data — rebuild with build_*.py / split_paradigms.py
+paradigms.json
+paradigms/
+concordance.tsv
+lemmas.tsv
+
+# python
+__pycache__/
+*.pyc
+
+# editor
+*.swp
+.DS_Store
+
+# demo transcript (curated version lives in README)
+session.txt

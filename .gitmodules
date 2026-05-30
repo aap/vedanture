@@ -1,0 +1,9 @@
+[submodule "corpus/c-salt_vedaweb_tei"]
+	path = corpus/c-salt_vedaweb_tei
+	url = https://github.com/cceh/c-salt_vedaweb_tei.git
+[submodule "corpus/c-salt_sanskrit_data"]
+	path = corpus/c-salt_sanskrit_data
+	url = https://github.com/cceh/c-salt_sanskrit_data.git
+[submodule "corpus/c-salt_vedaweb_sources"]
+	path = corpus/c-salt_vedaweb_sources
+	url = https://github.com/cceh/c-salt_vedaweb_sources.git
