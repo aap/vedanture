@@ -2,6 +2,7 @@
 paradigms.json
 paradigms/
 concordance.tsv
+gravity.json
 lemmas.tsv
 
 # python

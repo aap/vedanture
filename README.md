@@ -11,7 +11,7 @@ inspecting word-by-word annotation, browsing paradigms, following
 concordance threads, looking up Grassmann's dictionary, and hearing the
 Vedic pitch accent.
 
-## Example session
+## Sample session
 
 ```
 % python3 rv.py
@@ -256,10 +256,11 @@ hŕ̥daya-  a-stem  ·  nominal stem  16 tokens
 git clone --recurse-submodules <url> vedanture
 cd vedanture
 
-# build the derived data (takes ~2 min)
+# build the derived data (takes ~5 min total)
 python3 build_paradigms.py
 python3 split_paradigms.py
 python3 build_concordance.py
+python3 build_gravity.py
 
 # explore
 python3 rv.py
@@ -281,6 +282,7 @@ conc          concordance (this form)
 lem           concordance (whole lemma)
 def           Grassmann dictionary entry
 chant         Vedic pitch accent notation
+look          nearby lemmas · look 20 for more
 
 keep <name>   save current place to inventory
 drop <name>   remove from inventory

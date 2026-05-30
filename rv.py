@@ -16,6 +16,7 @@
     lem           concordance for whole lemma (a place)
     def           Grassmann dictionary entry (a place)
     chant         Vedic accent notation
+    look          nearby lemmas (gravity field)  ·  look 20 for more
 
   Inventory
     keep <name>   save current place (name optional → inv1, inv2…)
@@ -97,7 +98,7 @@ def hl(s): return f"{HL}{s}{R}"
 
 # ── data ──────────────────────────────────────────────────────────────────────
 
-_PD = _CD = None
+_PD = _CD = _GD = None
 _BC: dict = {}
 
 def paradigms():
@@ -108,6 +109,13 @@ def paradigms():
             d |= json.loads((BASE/"paradigms"/f"{p}.json").read_text())
         _PD = d
     return _PD
+
+def gravity():
+    global _GD
+    if _GD is None:
+        p = BASE / "gravity.json"
+        _GD = json.loads(p.read_text()) if p.exists() else {}
+    return _GD
 
 def concordance():
     global _CD
@@ -279,48 +287,105 @@ def _lookup_gra_ids(lemma_str: str) -> list[str]:
     return sorted(ids)
 
 
-def show_gra(lemma_str: str, eid: str | None = None) -> str | None:
-    """Display a GRA entry. Returns the eid shown (for state tracking)."""
+def _eid_to_corpus_lemma(eid: str) -> str:
+    """Return the corpus lemma string (e.g. 'hŕ̥daya-') for a GRA entry id."""
+    for data in _ml().values():
+        ids = data.get("id_matched")
+        ids = ids if isinstance(ids, list) else ([ids] if ids else [])
+        if eid in ids:
+            return data.get("lemma", "")
+    return ""
+
+
+def _eid_corpus_count(eid: str) -> int:
+    lemma = _eid_to_corpus_lemma(eid)
+    if not lemma:
+        return 0
+    pd = paradigms().get(lemma, {})
+    return sum(f["count"] for f in pd.get("forms", []))
+
+
+def show_gra(lemma_str: str, eid: str | None = None) -> tuple[str | None, list, list]:
+    """Display a GRA entry.  Returns (eid, nearby_eids, xref_lemmas)."""
     idx = _gra_idx()
 
     if eid is None:
         ids = _lookup_gra_ids(lemma_str)
         if not ids:
             print(f"  {d('no Grassmann entry found for')} {lemma_str}")
-            return None
-        eid = ids[0]   # show first; multiple homonyms are listed below
+            return None, [], []
+        eid = ids[0]
 
     entry = idx.get(eid)
     if entry is None:
         print(f"  {d('entry not found:')} {eid}")
-        return None
+        return None, [], []
 
-    orth = _orth_iso(entry)
-    n    = entry.get("n","?")
-    sense = entry.find(GT("sense"))
-    text  = _render_sense(sense) if sense is not None else "(no definition)"
+    orth   = _orth_iso(entry)
+    n      = entry.get("n","?")
+    sense  = entry.find(GT("sense"))
+    text   = _render_sense(sense) if sense is not None else "(no definition)"
+    tokens = _eid_corpus_count(eid)
+    tok_str = f"  ·  {d(str(tokens)+' tokens')}" if tokens else ""
 
-    print(f"\n{b(orth)}  {d('GRA #'+n)}\n")
+    print(f"\n{b(orth)}  {d('GRA #'+n)}{tok_str}\n")
     for line in text.split("\n"):
         print(f"  {line}")
 
-    # ── neighbouring entries ──────────────────────────────────────────────────
-    neighbors = _gra_neighbors(eid, window=3)
+    # ── sequential neighbours (two-column) ────────────────────────────────────
+    neighbors   = _gra_neighbors(eid, window=10)
+    nearby_eids = []
     if neighbors:
         print(f"\n  {d('─── nearby ──────────────────────────')}")
+        nav = []
         for nn, ne, no, nr, cur in neighbors:
-            marker = b("→") if cur else " "
-            print(f"  {marker} {d(str(nn)):>10}  {b(no) if cur else no}")
+            if cur:
+                print(f"  {'→':>5}  {nn:>6}  {b(no)}")
+            else:
+                nav.append((nn, ne, no))
+        nearby_eids = [ne for _, ne, _ in nav]
+        half = (len(nav) + 1) // 2
+        col  = 36
+        for row in range(half):
+            ln, _, lo = nav[row]
+            ls = f"  {row+1:>3}.  {ln:>6}  {lo}"
+            if row + half < len(nav):
+                rn, _, ro = nav[row + half]
+                ri = row + half + 1
+                rs = f"  {ri:>3}.  {rn:>6}  {ro}"
+                print(f"{ls:<{col}}{rs}")
+            else:
+                print(ls)
 
-    # ── cross-references in text ──────────────────────────────────────────────
+    # ── cross-references ──────────────────────────────────────────────────────
     prose = " ".join(sense.itertext()) if sense is not None else ""
-    xrefs = _extract_xrefs(prose)
+    xrefs = _extract_xrefs(prose)[:8]
     if xrefs:
+        offset = len(nearby_eids) + 1
         print(f"\n  {d('─── see also ─────────────────────────')}")
-        print("  " + "  ·  ".join(xrefs[:8]))
+        for j, xref in enumerate(xrefs, offset):
+            print(f"  {j:>3}.   {xref}")
 
     print()
-    return eid
+    return eid, nearby_eids, xrefs
+
+
+def _goto_gra(s, eid=None, lemma=None, push=True):
+    """Navigate to a GRA entry by eid or lemma string, updating s.last_list."""
+    if push:
+        _push(s, {"kind": "dict", "lemma": lemma or eid or ""})
+    else:
+        s.cur_loc = {"kind": "dict", "lemma": lemma or eid or ""}
+    gid, nbr_eids, xref_lemmas = show_gra(lemma or "", eid)
+    if gid:
+        s.cur_loc["gra_id"] = gid
+        corpus_lemma = lemma or _eid_to_corpus_lemma(gid)
+        if corpus_lemma:
+            s.word = {"surface": corpus_lemma, "lemma": corpus_lemma, "gramm": "", "feats": {}}
+    s.last_list = (
+        [lambda s, e=ne: _goto_gra(s, eid=e)   for ne in nbr_eids] +
+        [lambda s, l=xl: _goto_gra(s, lemma=l) for xl in xref_lemmas]
+    )
 
 
 # ── RV text ───────────────────────────────────────────────────────────────────
@@ -342,11 +407,13 @@ def load_book(n: int) -> dict:
         lines = [" ".join(l.itertext()).strip() for l in zur.findall(T("l"))
                  if "_tokens" not in (l.get(XID) or "")]
         trans = {}
-        for src in ("griffith","geldner","macdonell"):
+        for src in ("grassmann","geldner","griffith"):
             lg = div.find(f'.//{T("lg")}[@source="{src}"]')
             if lg is not None:
-                trans[src] = " ".join(" ".join(l.itertext()).strip()
-                                      for l in lg.findall(T("l")))
+                tlines = [" ".join("".join(l.itertext()).split()) for l in lg.findall(T("l"))]
+                tlines = [ln for ln in tlines if ln]
+                if tlines:
+                    trans[src] = tlines
         words = []
         for fs in zur.iter(T("fs")):
             if fs.get("type") != "zurich_info": continue
@@ -393,14 +460,22 @@ M_NAME  = {"IND":"indicative","IMP":"imperative","SBJV":"subjunctive",
 V_NAME  = {"ACT":"active","MED":"middle","PASS":"passive","":""}
 
 
+_TRANS_LABEL = {"grassmann": "graßmann", "geldner": "geldner", "griffith": "griffith"}
+_TRANS_W = max(len(f"[{v}]") for v in _TRANS_LABEL.values())
+
 def show_verse(ref, stanza):
     print(f"\n{b(ref)}   {d('—  ' + stanza['lines'][0] if stanza['lines'] else '')}")
     print()
     for line in stanza["lines"]:
         print(f"  {line}")
     print()
-    for src, text in stanza["trans"].items():
-        print(f"  {d('['+src+']')}  {text}")
+    for src, lines in stanza["trans"].items():
+        label = f"[{_TRANS_LABEL.get(src, src)}]"
+        pad   = " " * (_TRANS_W - len(label))
+        cont  = " " * (_TRANS_W + 2)
+        print(f"  {d(label)}{pad}  {lines[0]}")
+        for ln in lines[1:]:
+            print(f"  {cont}{ln}")
 
 
 def show_words(words):
@@ -486,9 +561,10 @@ def show_concordance(lemma, surface=None):
     rows = sorted(rows, key=lambda r: tuple(int(x) for x in r["ref"].split(".")))
     print(f"\n  {title}\n")
     col = max((len(r["ref"]) for r in rows), default=5) + 1
-    for r in rows:
-        print(f"  {d(r['ref']):<{col+8}}  {r['pada']}   {hl(r['surface']):<24}  {r['text']}")
+    for i, r in enumerate(rows, 1):
+        print(f"  {i:>4}.  {d(r['ref']):<{col+8}}  {r['pada']}   {hl(r['surface']):<24}  {r['text']}")
     print()
+    return rows
 
 
 # ── search ────────────────────────────────────────────────────────────────────
@@ -525,7 +601,7 @@ class S:
         self.words:     list      = []
         self.word:      dict|None = None
         self.word_num:  int       = 0
-        self.expanded:  bool      = False
+        self.last_list: list      = []   # callables for bare-number navigation
         self.history:   list      = []   # back-stack of location dicts
         self.inventory: dict      = {}   # name → location dict
         self.cur_loc:   dict|None = None # where we are now
@@ -546,6 +622,21 @@ def _push(s, loc: dict):
     if s.cur_loc:
         s.history.append(s.cur_loc)
     s.cur_loc = loc
+
+
+def _goto_lemma(s, lemma):
+    _push(s, {"kind": "paradigm", "lemma": lemma})
+    s.word = {"surface": lemma, "lemma": lemma, "gramm": "", "feats": {}}
+    show_paradigm(lemma)
+
+
+def _goto_ref(s, ref):
+    bk, hy = int(ref.split(".")[0]), int(ref.split(".")[1])
+    if bk != s.book or hy != s.hymn:
+        go_hymn(s, bk, hy)
+    idx = next((i for i,(r,_) in enumerate(s.verses) if r == ref), None)
+    if idx is not None:
+        go_verse(s, idx)
 
 
 def _loc_str(loc: dict) -> str:
@@ -580,13 +671,14 @@ def goto_location(s, loc: dict):
         pick_word(s, loc["word_num"], _push_loc=False)
     elif k == "paradigm":
         show_paradigm(loc["lemma"])
+        s.word = {"surface": loc["lemma"], "lemma": loc["lemma"], "gramm": "", "feats": {}}
         s.cur_loc = loc
     elif k == "concordance":
-        show_concordance(loc["lemma"], loc.get("surface"))
+        rows = show_concordance(loc["lemma"], loc.get("surface"))
         s.cur_loc = loc
+        s.last_list = [lambda s, ref=r["ref"]: _goto_ref(s, ref) for r in rows]
     elif k == "dict":
-        show_gra(loc["lemma"], loc.get("gra_id"))
-        s.cur_loc = loc
+        _goto_gra(s, eid=loc.get("gra_id"), lemma=loc.get("lemma"), push=False)
     elif k == "chant":
         show_chant(loc["ref"])
         s.cur_loc = loc
@@ -602,7 +694,7 @@ def go_hymn(s, book, hymn, _push_loc=True):
     print(f"  {d('loading…')}", end="\r", flush=True)
     s.verses = hymn_stanzas(book, hymn)
     s.book, s.hymn, s.idx = book, hymn, -1
-    s.words, s.word, s.expanded = [], None, False
+    s.words, s.word = [], None
     n = len(s.verses)
     print(f"\n{b(f'RV {book}.{hymn}')}  {d(str(n)+' verses')}\n")
     for ref, st in s.verses:
@@ -611,13 +703,14 @@ def go_hymn(s, book, hymn, _push_loc=True):
             print(f"    {line}")
         print()
     print(d("  type a verse number (e.g. 3), or n to step through"))
+    s.last_list = [lambda s, i=i: go_verse(s, i) for i in range(len(s.verses))]
 
 
 def go_verse(s, idx, _push_loc=True):
-    s.idx      = idx
-    s.words    = s.stanza.get("words",[]) if s.stanza else []
-    s.word     = None
-    s.expanded = False
+    s.idx       = idx
+    s.words     = s.stanza.get("words",[]) if s.stanza else []
+    s.word      = None
+    s.last_list = []
     loc = {"kind": "verse", "ref": s.ref}
     if _push_loc: _push(s, loc)
     else: s.cur_loc = loc
@@ -644,7 +737,14 @@ def pick_word(s, n, _push_loc=True):
           + (f"  {d('('+sc+')')}" if sc else "")
           + f"  ·  {d(feat)}"
           + f"  ·  {d(str(total)+' tokens')}")
-    print(d("  par · conc · lem"))
+    print(d("  par · conc · lem · def · look"))
+    nbrs = gravity().get(w["lemma"], [])[:6]
+    if nbrs:
+        items = "  ".join(f"{d(str(i)+'.')} {b(e['n'])}" for i,e in enumerate(nbrs, 1))
+        print(f"  {d('nearby:')}  {items}")
+        s.last_list = [lambda s, l=e["n"]: _goto_lemma(s, l) for e in nbrs]
+    else:
+        s.last_list = []
 
 
 def handle(cmd: str, s: S) -> bool:
@@ -667,18 +767,16 @@ def handle(cmd: str, s: S) -> bool:
         go_hymn(s, int(parts[0]), int(parts[1]))
         return True
 
-    # bare number → word selection (after x) or verse navigation (at hymn level)
+    # bare number → select from whatever was last listed
     if cmd.isdigit():
         n = int(cmd)
-        if s.expanded and s.words:
-            pick_word(s, n)
-        elif s.verses:
-            if 1 <= n <= len(s.verses):
-                go_verse(s, n-1)
+        if s.last_list:
+            if 1 <= n <= len(s.last_list):
+                s.last_list[n-1](s)
             else:
-                print(f"  verse out of range (1–{len(s.verses)})  ·  use x first to select words")
+                print(f"  {n} out of range (1–{len(s.last_list)})")
         else:
-            print("  open a hymn first (e.g. 1.1)")
+            print("  open a hymn first, or type x / find / look")
         return True
 
     tok  = cmd.split(None, 1)
@@ -707,7 +805,7 @@ def handle(cmd: str, s: S) -> bool:
 
     elif verb in ("s","sukta","hymn"):
         if s.book:
-            s.idx, s.expanded, s.word = -1, False, None
+            s.idx, s.word = -1, None
             s.cur_loc = {"kind": "hymn", "book": s.book, "hymn": s.hymn}
             n = len(s.verses)
             print(f"\n{b(f'RV {s.book}.{s.hymn}')}  {d(str(n)+' verses')}\n")
@@ -716,13 +814,14 @@ def handle(cmd: str, s: S) -> bool:
                 for line in st['lines']:
                     print(f"    {line}")
                 print()
+            s.last_list = [lambda s, i=i: go_verse(s, i) for i in range(len(s.verses))]
         else:
             print("  no hymn open")
 
     elif verb in ("x","expand","words","w"):
         if s.words:
             show_words(s.words)
-            s.expanded = True
+            s.last_list = [lambda s, n=n: pick_word(s, n) for n in range(1, len(s.words)+1)]
             print(d(f"  type a number to select a word (1–{len(s.words)})"))
         else:
             print("  no verse open — try n")
@@ -742,13 +841,15 @@ def handle(cmd: str, s: S) -> bool:
     elif verb in ("conc","concordance","c"):
         if s.word:
             _push(s, {"kind": "concordance", "lemma": s.word["lemma"], "surface": s.word["surface"]})
-            show_concordance(s.word["lemma"], s.word["surface"])
+            rows = show_concordance(s.word["lemma"], s.word["surface"])
+            s.last_list = [lambda s, ref=r["ref"]: _goto_ref(s, ref) for r in rows]
         else: print("  select a word first")
 
     elif verb in ("lem","lemma","l"):
         if s.word:
             _push(s, {"kind": "concordance", "lemma": s.word["lemma"]})
-            show_concordance(s.word["lemma"])
+            rows = show_concordance(s.word["lemma"])
+            s.last_list = [lambda s, ref=r["ref"]: _goto_ref(s, ref) for r in rows]
         else: print("  select a word first")
 
     elif verb in ("chant","acc","melody"):
@@ -759,11 +860,37 @@ def handle(cmd: str, s: S) -> bool:
 
     elif verb in ("def","dict","gra","d"):
         target = rest or (s.word["lemma"] if s.word else None)
-        if target:
-            _push(s, {"kind": "dict", "lemma": target})
-            gra_id = show_gra(target)
-            if gra_id: s.cur_loc["gra_id"] = gra_id
-        else: print("  select a word first, or: def soma")
+        if not target:
+            print("  select a word first, or: def soma  /  def 10727")
+        elif rest.isdigit():
+            seq = _gra_seq()
+            n   = int(rest)
+            eid = next((eid for nn,eid,_,_ in seq if nn == n), None)
+            if eid: _goto_gra(s, eid=eid)
+            else:   print(f"  GRA #{rest} not found")
+        else:
+            _goto_gra(s, lemma=target)
+
+    elif verb in ("look",):
+        n_show = int(rest) if rest.isdigit() else 10
+        lemma  = (None if rest.isdigit() else rest) or (s.word["lemma"] if s.word else None)
+        if not lemma:
+            print("  select a word first, or: look soma  /  look 20")
+        else:
+            nbrs = gravity().get(lemma, [])
+            if not nbrs:
+                print(f"  no gravity data for {lemma}  (run build_gravity.py first)")
+            else:
+                nbrs = nbrs[:n_show]
+                max_s = nbrs[0]["s"] or 1
+                print(f"\n  {b(lemma)}  —  nearest {len(nbrs)}\n")
+                for i, e in enumerate(nbrs, 1):
+                    bw  = min(20, max(1, int(e["s"] / max_s * 20)))
+                    bar = "▏" * bw + " " * (20 - bw)
+                    print(f"  {i:>3}.  {d(bar)}  {b(e['n']):<32}  "
+                          + d(f"v={e['v']} p={e['p']} m={e['m']}"))
+                print()
+                s.last_list = [lambda s, l=e["n"]: _goto_lemma(s, l) for e in nbrs]
 
     elif verb in ("back","b"):
         if s.history:
@@ -831,8 +958,9 @@ def handle(cmd: str, s: S) -> bool:
                 gramm = "/".join(pd.get("gramm",[]))
                 total = sum(f["count"] for f in pd.get("forms",[]))
                 tag   = gramm + (f" {sc}" if sc and sc!="indeclinable" else "")
-                print(f"  {d(str(i)+'.'):>6}  {b(l):<30} {d(tag):<26} {total} tokens")
-            print(d("\n  type a lemma to look it up directly"))
+                print(f"  {i:>3}.  {b(l):<32} {d(tag):<28} {total} tokens")
+            print()
+            s.last_list = [lambda s, l=l: _goto_lemma(s, l) for l,_ in results]
 
     elif verb in ("help","h","?"):
         print(__doc__)
@@ -841,13 +969,14 @@ def handle(cmd: str, s: S) -> bool:
         # try as direct lemma lookup
         results = search(cmd)
         if results and _norm(results[0][0]) == _norm(cmd):
-            l, _ = results[0]
-            s.word = {"surface":l, "lemma":l, "gramm":"", "feats":{}}
-            show_paradigm(l)
+            _goto_lemma(s, results[0][0])
         elif results:
-            print(f"\n  did you mean one of:")
-            for l2,pd2 in results[:6]:
-                print(f"    {b(l2):<34} {sum(f['count'] for f in pd2.get('forms',[]))} tokens")
+            print(f"\n  did you mean:")
+            for i,(l2,pd2) in enumerate(results[:6], 1):
+                total = sum(f["count"] for f in pd2.get("forms",[]))
+                print(f"  {i:>3}.  {b(l2):<32} {total} tokens")
+            print()
+            s.last_list = [lambda s, l=l: _goto_lemma(s, l) for l,_ in results[:6]]
         else:
             print(f"  {d(repr(cmd))} — unknown  (h for help)")
 
