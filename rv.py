@@ -2,6 +2,7 @@
 """rv — Ṛgveda explorer
 
   Navigation
+    7.            open maṇḍala (book) index
     1.1           open hymn (a place)
     1.1.3         open verse (a place)
     n / p         next / previous verse
@@ -81,9 +82,17 @@ try:
 except ImportError:
     pass
 
-BASE    = Path(__file__).parent
-TEI_DIR = BASE / "corpus/c-salt_vedaweb_tei"
-HYMN_N  = {1:191,2:43,3:62,4:58,5:87,6:75,7:104,8:103,9:114,10:191}
+BASE      = Path(__file__).parent
+TEI_DIR   = BASE / "corpus/c-salt_vedaweb_tei"
+HYMN_N    = {1:191,2:43,3:62,4:58,5:87,6:75,7:104,8:103,9:114,10:191}
+ADDR_PATH = BASE / "corpus/c-salt_vedaweb_sources/rigveda/info/addressees.json"
+
+BOOK_LABEL = {
+    1: "first maṇḍala",  2: "Gṛtsamada",     3: "Viśvāmitra",
+    4: "Vāmadeva",       5: "Atri",           6: "Bharadvāja",
+    7: "Vasiṣṭha",       8: "Kāṇva / misc.",  9: "Soma pavamāna",
+   10: "tenth maṇḍala",
+}
 
 # ── terminal ──────────────────────────────────────────────────────────────────
 
@@ -98,7 +107,7 @@ def hl(s): return f"{HL}{s}{R}"
 
 # ── data ──────────────────────────────────────────────────────────────────────
 
-_PD = _CD = _GD = None
+_PD = _CD = _GD = _ADDR = None
 _BC: dict = {}
 
 def paradigms():
@@ -116,6 +125,13 @@ def gravity():
         p = BASE / "gravity.json"
         _GD = json.loads(p.read_text()) if p.exists() else {}
     return _GD
+
+def addr():
+    global _ADDR
+    if _ADDR is None:
+        _ADDR = json.loads(ADDR_PATH.read_text())
+    return _ADDR
+
 
 def concordance():
     global _CD
@@ -141,6 +157,7 @@ _GE_REV   = None   # grassmann_seq_num → "book.hymn"
 GTEI = "http://www.tei-c.org/ns/1.0"
 GT   = lambda s: f"{{{GTEI}}}{s}"
 GXID = "{http://www.w3.org/XML/1998/namespace}id"
+GXML = "{http://www.w3.org/XML/1998/namespace}"    # xml: attribute namespace
 
 def _gra_load():
     global _GRA_IDX, _GRA_SEQ
@@ -153,7 +170,7 @@ def _gra_load():
             eid   = e.get(GXID,"")
             orth  = ""
             for o in e.findall(f".//{GT('orth')}"):
-                if o.get(f"{GXID[:GXID.index('}')+1]}lang","") == "san-Latn-x-ISO-15919":
+                if o.get(f"{GXML}lang","") == "san-Latn-x-ISO-15919":
                     orth = o.text or ""; break
             nrefs = len(e.findall(f".//{GT('ref')}"))
             _GRA_SEQ.append((int(e.get("n","0")), eid, orth, nrefs))
@@ -232,8 +249,7 @@ _XREF_PATTERNS = _re.compile(
 
 def _orth_iso(entry) -> str:
     for o in entry.findall(f".//{GT('orth')}"):
-        lang = o.get(f"{{{GTEI}}}lang","") or o.get("lang","")
-        if "ISO-15919" in lang:
+        if "ISO-15919" in o.get(f"{GXML}lang", ""):
             return o.text or ""
     return ""
 
@@ -269,40 +285,58 @@ def _extract_xrefs(text: str) -> list[str]:
     return list(dict.fromkeys(out))  # deduplicate, preserve order
 
 
+def _lemma_norms(lemma_str: str) -> set[str]:
+    """All normalised forms to try — handles '√foo- ~ √bar-' compound lemmas."""
+    parts = [lemma_str] + (lemma_str.split(" ~ ") if " ~ " in lemma_str else [])
+    return {_norm(p) for p in parts if _norm(p)}
+
+
 def _lookup_gra_ids(lemma_str: str) -> list[str]:
     """Return GRA xml:ids for a lemma string."""
-    ml  = _ml()
-    idx = _gra_idx()
-    ids = set()
-    norm = _norm(lemma_str)
+    ml    = _ml()
+    idx   = _gra_idx()
+    ids   = set()
+    norms = _lemma_norms(lemma_str)
     for surface, data in ml.items():
         m  = data.get("id_matched")
         dl = data.get("lemma","")
-        if m and (_norm(dl) == norm or _norm(surface) == norm):
+        if m and (_norm(dl) in norms or _norm(surface) in norms):
             ids.update(m if isinstance(m, list) else [m])
     if not ids:
         for eid, entry in idx.items():
-            if _norm(_orth_iso(entry)) == norm:
+            if _norm(_orth_iso(entry)) in norms:
                 ids.add(eid)
     return sorted(ids)
 
 
-def _eid_to_corpus_lemma(eid: str) -> str:
-    """Return the corpus lemma string (e.g. 'hŕ̥daya-') for a GRA entry id."""
+def _eid_corpus_info(eid: str) -> tuple[list[str], int]:
+    """Return (corpus_lemmata, total_token_count) for a GRA entry id.
+
+    Multiple corpus lemmata can map to the same GRA entry (e.g. variant
+    spellings treated as one dictionary headword).
+    """
+    seen, lemmata, total = set(), [], 0
     for data in _ml().values():
         ids = data.get("id_matched")
         ids = ids if isinstance(ids, list) else ([ids] if ids else [])
         if eid in ids:
-            return data.get("lemma", "")
-    return ""
+            lemma = data.get("lemma", "")
+            if lemma and lemma not in seen:
+                seen.add(lemma)
+                lemmata.append(lemma)
+                pd = paradigms().get(lemma, {})
+                total += sum(f["count"] for f in pd.get("forms", []))
+    return lemmata, total
+
+
+def _eid_to_corpus_lemma(eid: str) -> str:
+    lemmata, _ = _eid_corpus_info(eid)
+    return lemmata[0] if lemmata else ""
 
 
 def _eid_corpus_count(eid: str) -> int:
-    lemma = _eid_to_corpus_lemma(eid)
-    if not lemma:
-        return 0
-    pd = paradigms().get(lemma, {})
-    return sum(f["count"] for f in pd.get("forms", []))
+    _, total = _eid_corpus_info(eid)
+    return total
 
 
 def show_gra(lemma_str: str, eid: str | None = None) -> tuple[str | None, list, list]:
@@ -321,14 +355,17 @@ def show_gra(lemma_str: str, eid: str | None = None) -> tuple[str | None, list, 
         print(f"  {d('entry not found:')} {eid}")
         return None, [], []
 
-    orth   = _orth_iso(entry)
-    n      = entry.get("n","?")
-    sense  = entry.find(GT("sense"))
-    text   = _render_sense(sense) if sense is not None else "(no definition)"
-    tokens = _eid_corpus_count(eid)
+    orth              = _orth_iso(entry)
+    n                 = entry.get("n","?")
+    sense             = entry.find(GT("sense"))
+    text              = _render_sense(sense) if sense is not None else "(no definition)"
+    corpus_lemmata, tokens = _eid_corpus_info(eid)
     tok_str = f"  ·  {d(str(tokens)+' tokens')}" if tokens else ""
 
-    print(f"\n{b(orth)}  {d('GRA #'+n)}{tok_str}\n")
+    print(f"\n{b(orth)}  {d('GRA #'+n)}{tok_str}")
+    if corpus_lemmata:
+        print(f"  {d('corpus:')}  {'  ·  '.join(b(l) for l in corpus_lemmata)}")
+    print()
     for line in text.split("\n"):
         print(f"  {line}")
 
@@ -371,7 +408,12 @@ def show_gra(lemma_str: str, eid: str | None = None) -> tuple[str | None, list, 
 
 
 def _goto_gra(s, eid=None, lemma=None, push=True):
-    """Navigate to a GRA entry by eid or lemma string, updating s.last_list."""
+    """Navigate to a GRA entry by eid or lemma string, updating s.last_list.
+
+    s.word is only updated when a real GRA entry is found; it is left
+    unchanged on lookup failure so the caller's corpus-lemma context
+    (par, lem, conc) keeps working.
+    """
     if push:
         _push(s, {"kind": "dict", "lemma": lemma or eid or ""})
     else:
@@ -382,6 +424,7 @@ def _goto_gra(s, eid=None, lemma=None, push=True):
         corpus_lemma = lemma or _eid_to_corpus_lemma(gid)
         if corpus_lemma:
             s.word = {"surface": corpus_lemma, "lemma": corpus_lemma, "gramm": "", "feats": {}}
+    # on lookup failure gid is None — s.word intentionally unchanged
     s.last_list = (
         [lambda s, e=ne: _goto_gra(s, eid=e)   for ne in nbr_eids] +
         [lambda s, l=xl: _goto_gra(s, lemma=l) for xl in xref_lemmas]
@@ -684,6 +727,72 @@ def goto_location(s, loc: dict):
         s.cur_loc = loc
 
 
+def go_mandala(s, book):
+    """Show the hymn index for a whole book — addressee, group, verse count."""
+    n_hymns = HYMN_N.get(book, 0)
+    label   = BOOK_LABEL.get(book, "")
+
+    # verse counts: count stanza keys in the book cache if already loaded,
+    # otherwise derive from concordance (no extra file load needed)
+    verse_counts = {}
+    if book in _BC:
+        from collections import Counter
+        cntr = Counter()
+        for sid in _BC[book]:
+            parts = sid.split("_")
+            if len(parts) >= 2:
+                cntr[int(parts[1][1:])] += 1
+        verse_counts = dict(cntr)
+    else:
+        from collections import Counter
+        cntr  = Counter()
+        seen  = set()
+        for rows in concordance().values():
+            for r in rows:
+                ref = r["ref"]
+                if ref not in seen:
+                    parts = ref.split(".")
+                    if int(parts[0]) == book:
+                        seen.add(ref)
+                        cntr[int(parts[1])] += 1
+        verse_counts = dict(cntr)
+
+    ad   = addr()
+    loc  = {"kind": "hymn", "book": book, "hymn": 0}
+    _push(s, loc)
+
+    print(f"\n{b(f'RV {book}')}  {d(label)}  ·  {n_hymns} hymns\n")
+
+    actions     = []
+    prev_group  = None
+    for hymn_n in range(1, n_hymns + 1):
+        key  = f"{book:02d}.{hymn_n:03d}"
+        info = ad.get(key)
+        if info:
+            addressee = info[0][1]   # English
+            group_str = info[1][1]   # e.g. "2. group: hymns to Indra"
+        else:
+            addressee, group_str = "—", ""
+
+        # group header when group changes
+        if group_str != prev_group:
+            prev_group = group_str
+            # strip leading "N. group: " prefix
+            glabel = group_str.split(": ", 1)[-1] if ": " in group_str else group_str
+            print(f"  {d('── '+glabel+' '+'─'*max(0,46-len(glabel)))}")
+
+        v = verse_counts.get(hymn_n, "?")
+        v_str = f"{v}v" if isinstance(v, int) else "?"
+        rank  = len(actions) + 1
+        print(f"  {rank:>4}.  {b(f'{book}.{hymn_n}'):<{8+len(b(''))}}  "
+              f"{addressee:<32}  {d(v_str)}")
+        actions.append(lambda s, bk=book, hy=hymn_n: go_hymn(s, bk, hy))
+
+    print()
+    s.cur_loc  = {"kind": "hymn", "book": book, "hymn": 0}
+    s.last_list = actions
+
+
 def go_hymn(s, book, hymn, _push_loc=True):
     if book not in HYMN_N or not (1 <= hymn <= HYMN_N[book]):
         print(f"  no such hymn: {book}.{hymn}")
@@ -752,6 +861,13 @@ def handle(cmd: str, s: S) -> bool:
     if not cmd: return True
 
     parts = cmd.split(".")
+    # mandala ref  7.
+    if len(parts) == 2 and parts[0].isdigit() and parts[1] == "":
+        n = int(parts[0])
+        if 1 <= n <= 10: go_mandala(s, n)
+        else: print(f"  book {n} doesn't exist (1–10)")
+        return True
+
     # verse ref  1.1.3
     if len(parts) == 3 and all(p.isdigit() for p in parts):
         b_, h_, sv = int(parts[0]), int(parts[1]), int(parts[2])
@@ -775,8 +891,12 @@ def handle(cmd: str, s: S) -> bool:
                 s.last_list[n-1](s)
             else:
                 print(f"  {n} out of range (1–{len(s.last_list)})")
+        elif s.stanza:
+            print(d("  type x to expand words, then a number to select"))
+        elif 1 <= n <= 10:
+            go_mandala(s, n)
         else:
-            print("  open a hymn first, or type x / find / look")
+            print("  type a book number (1–10) to open a maṇḍala")
         return True
 
     tok  = cmd.split(None, 1)
