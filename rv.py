@@ -18,6 +18,7 @@
     def           Grassmann dictionary entry (a place)
     chant         Vedic accent notation
     look          nearby lemmas (gravity field)  ·  look 20 for more
+    stems         browse by stem formation  ·  stems a-stem for lemmata
 
   Inventory
     keep <name>   save current place (name optional → inv1, inv2…)
@@ -31,9 +32,17 @@
   q             quit
 """
 
-import sys, json, csv, unicodedata, difflib
+import sys, json, csv
 from pathlib import Path
 from collections import defaultdict
+
+from explorer import (
+    Corpus, S as BaseS,
+    b, d, hl, B, D, R, HL, RULE,
+    _norm, _push, _goto_lemma,
+    show_paradigm, show_concordance, show_stems, show_look,
+    load_inventory, save_inventory,
+)
 
 # optional: chant rendering
 try:
@@ -94,54 +103,23 @@ BOOK_LABEL = {
    10: "tenth maṇḍala",
 }
 
-# ── terminal ──────────────────────────────────────────────────────────────────
+# ── corpus instance ───────────────────────────────────────────────────────────
 
-B  = "\033[1m"
-D  = "\033[2m"
-R  = "\033[0m"
-HL = "\033[1;33m"    # highlighted form
+_RV_CORPUS = Corpus(BASE, inv_file=Path.home() / ".vedanture_inventory.json")
 
-def b(s):  return f"{B}{s}{R}"
-def d(s):  return f"{D}{s}{R}"
-def hl(s): return f"{HL}{s}{R}"
+# convenience wrappers (used by GRA helpers that have no session reference)
+def paradigms():   return _RV_CORPUS.paradigms()
+def concordance(): return _RV_CORPUS.concordance()
+def gravity():     return _RV_CORPUS.gravity()
 
-# ── data ──────────────────────────────────────────────────────────────────────
-
-_PD = _CD = _GD = _ADDR = None
-_BC: dict = {}
-
-def paradigms():
-    global _PD
-    if _PD is None:
-        d = {}
-        for p in ("nouns","verbs","particles","pronouns"):
-            d |= json.loads((BASE/"paradigms"/f"{p}.json").read_text())
-        _PD = d
-    return _PD
-
-def gravity():
-    global _GD
-    if _GD is None:
-        p = BASE / "gravity.json"
-        _GD = json.loads(p.read_text()) if p.exists() else {}
-    return _GD
+_ADDR: dict | None = None
+_BC:   dict        = {}
 
 def addr():
     global _ADDR
     if _ADDR is None:
         _ADDR = json.loads(ADDR_PATH.read_text())
     return _ADDR
-
-
-def concordance():
-    global _CD
-    if _CD is None:
-        rows: dict = defaultdict(list)
-        with open(BASE/"concordance.tsv") as f:
-            for row in csv.DictReader(f, delimiter="\t"):
-                rows[row["lemma"]].append(row)
-        _CD = dict(rows)
-    return _CD
 
 # ── Grassmann dictionary ──────────────────────────────────────────────────────
 
@@ -488,20 +466,6 @@ def hymn_stanzas(book, hymn):
 
 # ── rendering ─────────────────────────────────────────────────────────────────
 
-RULE = "─" * 64
-
-CASES   = ["NOM","ACC","INS","DAT","ABL","GEN","LOC","VOC",""]
-NUMBERS = ["SG","DU","PL"]
-TENSES  = ["PRS","IPRF","AOR","PRF","FUT","COND",""]
-MOODS   = ["IND","IMP","SBJV","OPT","INJ","DES",""]
-VOICES  = ["ACT","MED","PASS",""]
-PERSONS = ["1","2","3",""]
-T_NAME  = {"PRS":"present","IPRF":"imperfect","AOR":"aorist","PRF":"perfect",
-           "FUT":"future","COND":"conditional","":""}
-M_NAME  = {"IND":"indicative","IMP":"imperative","SBJV":"subjunctive",
-           "OPT":"optative","INJ":"injunctive","DES":"desiderative","":""}
-V_NAME  = {"ACT":"active","MED":"middle","PASS":"passive","":""}
-
 
 _TRANS_LABEL = {"grassmann": "graßmann", "geldner": "geldner", "griffith": "griffith"}
 _TRANS_W = max(len(f"[{v}]") for v in _TRANS_LABEL.values())
@@ -531,123 +495,19 @@ def show_words(words):
         print(f"  {d(str(i)):>5}  {w['surface']:<{cw}} {d(w['lemma']):<{cl+6}} {feat}")
 
 
-def show_paradigm(lemma):
-    pd    = paradigms().get(lemma, {})
-    gramm = pd.get("gramm",[])
-    sc    = pd.get("stem_class","")
-    total = sum(f["count"] for f in pd.get("forms",[]))
-    print(f"\n{b(lemma)}  {d('  ·  '.join(p for p in [sc]+gramm if p))}  {d(str(total)+' tokens')}")
-    print(f"  {RULE}")
-
-    forms = pd.get("forms",[])
-    idx: dict = defaultdict(list)
-
-    if "root" in gramm:
-        for f in forms:
-            ft = f["features"]
-            idx[(ft.get("tense",""),ft.get("mood",""),ft.get("voice",""),
-                 ft.get("person",""),ft.get("number",""))].append((f["surface"],f["count"]))
-        seen = set()
-        for t in TENSES:
-            for m in MOODS:
-                for v in VOICES:
-                    if (t,m,v) in seen or not any(k[:3]==(t,m,v) for k in idx): continue
-                    seen.add((t,m,v))
-                    label = " ".join(x for x in [T_NAME[t],M_NAME[m],V_NAME[v]] if x)
-                    print(f"\n  {b(label)}")
-                    nums  = [n for n in NUMBERS if any(k==(t,m,v,p,n) for k in idx for p in PERSONS)]
-                    pers  = [p for p in PERSONS if any(k==(t,m,v,p,n) for k in idx for n in NUMBERS)]
-                    cw    = 24
-                    print(f"  {'':6}" + "".join(f"  {n:<{cw}}" for n in nums))
-                    for p in pers:
-                        row = f"  {p or '?':<6}"
-                        for n in nums:
-                            es   = idx.get((t,m,v,p,n),[])
-                            cell = " / ".join(s for s,_ in sorted(es,key=lambda x:-x[1])[:2]) if es else "—"
-                            row += f"  {cell:<{cw}}"
-                        print(row)
-
-    elif gramm and "invariable" not in gramm:
-        for f in forms:
-            ft = f["features"]
-            idx[(ft.get("case",""),ft.get("number",""),ft.get("gender",""))].append(
-                (f["surface"],f["count"]))
-        nums = [n for n in NUMBERS if any(k[1]==n for k in idx)]
-        cw   = 22
-        print(f"\n  {'':8}" + "".join(f"  {n:<{cw}}" for n in nums))
-        print(f"  {RULE}")
-        for case in CASES:
-            if not any(k[0]==case for k in idx): continue
-            row = f"  {case or '(other)':<8}"
-            for n in nums:
-                m2 = []
-                for gg in ("","M","F","N"): m2.extend(idx.get((case,n,gg),[]))
-                cell = " / ".join(
-                    (f"{s}({c})" if c>1 else s)
-                    for s,c in sorted(m2,key=lambda x:-x[1])[:2]
-                ) if m2 else "—"
-                row += f"  {cell:<{cw}}"
-            print(row)
-    else:
-        for f in forms[:30]:
-            print(f"  {f['surface']:<22} {d(str(f['count']))}")
-    print()
-
-
-def show_concordance(lemma, surface=None):
-    rows = concordance().get(lemma, [])
-    if surface:
-        rows  = [r for r in rows if r["surface"] == surface]
-        title = f"{hl(surface)}  {d('(< '+lemma+')')}  ·  {b(str(len(rows)))} occurrences  {d('lem = all forms')}"
-    else:
-        title = f"{b('lemma '+lemma)}  ·  {b(str(len(rows)))} occurrences"
-    rows = sorted(rows, key=lambda r: tuple(int(x) for x in r["ref"].split(".")))
-    print(f"\n  {title}\n")
-    col = max((len(r["ref"]) for r in rows), default=5) + 1
-    for i, r in enumerate(rows, 1):
-        print(f"  {i:>4}.  {d(r['ref']):<{col+8}}  {r['pada']}   {hl(r['surface']):<24}  {r['text']}")
-    print()
-    return rows
-
-
-# ── search ────────────────────────────────────────────────────────────────────
-
-def _norm(s):
-    s = unicodedata.normalize("NFD", s)
-    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
-    return unicodedata.normalize("NFC", s).lower().lstrip("√").rstrip("-~ ").strip()
-
-def search(query, n=15):
-    q   = _norm(query)
-    all_= list(paradigms().items())
-    nm  = {l: _norm(l) for l,_ in all_}
-    ex, st, co, fz = [], [], [], []
-    for l, pd in all_:
-        v = nm[l]
-        if v == q:           ex.append((l,pd))
-        elif v.startswith(q): st.append((l,pd))
-        elif q in v:          co.append((l,pd))
-    if not (ex or st or co):
-        close = set(difflib.get_close_matches(q, nm.values(), n=n, cutoff=0.6))
-        fz = sorted([(l,pd) for l,pd in all_ if nm[l] in close],
-                    key=lambda x: -difflib.SequenceMatcher(None,q,nm[x[0]]).ratio())
-    return (ex+st+co+fz)[:n]
 
 
 # ── state & REPL ──────────────────────────────────────────────────────────────
 
-class S:
+class S(BaseS):
     def __init__(self):
-        self.book = self.hymn = 0
-        self.verses:    list      = []
-        self.idx:       int       = -1
-        self.words:     list      = []
-        self.word:      dict|None = None
-        self.word_num:  int       = 0
-        self.last_list: list      = []   # callables for bare-number navigation
-        self.history:   list      = []   # back-stack of location dicts
-        self.inventory: dict      = {}   # name → location dict
-        self.cur_loc:   dict|None = None # where we are now
+        super().__init__(_RV_CORPUS)
+        self.book:      int  = 0
+        self.hymn:      int  = 0
+        self.verses:    list = []
+        self.idx:       int  = -1
+        self.words:     list = []
+        self.word_num:  int  = 0
 
     @property
     def ref(self):
@@ -659,18 +519,6 @@ class S:
 
 
 # ── location helpers ──────────────────────────────────────────────────────────
-
-def _push(s, loc: dict):
-    """Record current location in history before navigating away."""
-    if s.cur_loc:
-        s.history.append(s.cur_loc)
-    s.cur_loc = loc
-
-
-def _goto_lemma(s, lemma):
-    _push(s, {"kind": "paradigm", "lemma": lemma})
-    s.word = {"surface": lemma, "lemma": lemma, "gramm": "", "feats": {}}
-    show_paradigm(lemma)
 
 
 def _goto_ref(s, ref):
@@ -703,9 +551,9 @@ def goto_location(s, loc: dict):
         go_hymn(s, loc["book"], loc["hymn"], _push_loc=False)
     elif k == "verse":
         ref = loc["ref"]
-        b, h = int(ref.split(".")[0]), int(ref.split(".")[1])
-        if b != s.book or h != s.hymn:
-            go_hymn(s, b, h, _push_loc=False)
+        bk, hy = int(ref.split(".")[0]), int(ref.split(".")[1])
+        if bk != s.book or hy != s.hymn:
+            go_hymn(s, bk, hy, _push_loc=False)
         idx = next((i for i,(r,_) in enumerate(s.verses) if r == ref), None)
         if idx is not None:
             go_verse(s, idx, _push_loc=False)
@@ -713,11 +561,11 @@ def goto_location(s, loc: dict):
         goto_location(s, {"kind": "verse", "ref": loc["ref"]})
         pick_word(s, loc["word_num"], _push_loc=False)
     elif k == "paradigm":
-        show_paradigm(loc["lemma"])
+        show_paradigm(s, loc["lemma"])
         s.word = {"surface": loc["lemma"], "lemma": loc["lemma"], "gramm": "", "feats": {}}
         s.cur_loc = loc
     elif k == "concordance":
-        rows = show_concordance(loc["lemma"], loc.get("surface"))
+        rows = show_concordance(s, loc["lemma"], loc.get("surface"))
         s.cur_loc = loc
         s.last_list = [lambda s, ref=r["ref"]: _goto_ref(s, ref) for r in rows]
     elif k == "dict":
@@ -955,20 +803,20 @@ def handle(cmd: str, s: S) -> bool:
     elif verb in ("par","paradigm"):
         if s.word:
             _push(s, {"kind": "paradigm", "lemma": s.word["lemma"]})
-            show_paradigm(s.word["lemma"])
+            show_paradigm(s, s.word["lemma"])
         else: print("  select a word first (x, then a number)")
 
     elif verb in ("conc","concordance","c"):
         if s.word:
             _push(s, {"kind": "concordance", "lemma": s.word["lemma"], "surface": s.word["surface"]})
-            rows = show_concordance(s.word["lemma"], s.word["surface"])
+            rows = show_concordance(s, s.word["lemma"], s.word["surface"])
             s.last_list = [lambda s, ref=r["ref"]: _goto_ref(s, ref) for r in rows]
         else: print("  select a word first")
 
     elif verb in ("lem","lemma","l"):
         if s.word:
             _push(s, {"kind": "concordance", "lemma": s.word["lemma"]})
-            rows = show_concordance(s.word["lemma"])
+            rows = show_concordance(s, s.word["lemma"])
             s.last_list = [lambda s, ref=r["ref"]: _goto_ref(s, ref) for r in rows]
         else: print("  select a word first")
 
@@ -997,20 +845,10 @@ def handle(cmd: str, s: S) -> bool:
         if not lemma:
             print("  select a word first, or: look soma  /  look 20")
         else:
-            nbrs = gravity().get(lemma, [])
-            if not nbrs:
-                print(f"  no gravity data for {lemma}  (run build_gravity.py first)")
-            else:
-                nbrs = nbrs[:n_show]
-                max_s = nbrs[0]["s"] or 1
-                print(f"\n  {b(lemma)}  —  nearest {len(nbrs)}\n")
-                for i, e in enumerate(nbrs, 1):
-                    bw  = min(20, max(1, int(e["s"] / max_s * 20)))
-                    bar = "▏" * bw + " " * (20 - bw)
-                    print(f"  {i:>3}.  {d(bar)}  {b(e['n']):<32}  "
-                          + d(f"v={e['v']} p={e['p']} m={e['m']}"))
-                print()
-                s.last_list = [lambda s, l=e["n"]: _goto_lemma(s, l) for e in nbrs]
+            show_look(s, lemma, n_show)
+
+    elif verb in ("stems","stem","sc"):
+        show_stems(s, rest)
 
     elif verb in ("back","b"):
         if s.history:
@@ -1035,7 +873,7 @@ def handle(cmd: str, s: S) -> bool:
 
     elif verb in ("save",):
         save_inventory(s)
-        print(f"  inventory saved ({len(s.inventory)} items → {INV_FILE})")
+        print(f"  inventory saved ({len(s.inventory)} items → {s.corpus.inv_file})")
 
     elif verb in ("load",):
         load_inventory(s)
@@ -1068,7 +906,7 @@ def handle(cmd: str, s: S) -> bool:
 
     elif verb in ("find","search","f"):
         if not rest: print("  usage: find <query>"); return True
-        results = search(rest)
+        results = s.corpus.search(rest)
         if not results:
             print(f"  nothing found for {rest!r}")
         else:
@@ -1087,7 +925,7 @@ def handle(cmd: str, s: S) -> bool:
 
     else:
         # try as direct lemma lookup
-        results = search(cmd)
+        results = s.corpus.search(cmd)
         if results and _norm(results[0][0]) == _norm(cmd):
             _goto_lemma(s, results[0][0])
         elif results:
@@ -1101,22 +939,6 @@ def handle(cmd: str, s: S) -> bool:
             print(f"  {d(repr(cmd))} — unknown  (h for help)")
 
     return True
-
-
-INV_FILE = Path.home() / ".vedanture_inventory.json"
-
-def load_inventory(s: S) -> None:
-    if INV_FILE.exists():
-        try:
-            s.inventory = json.loads(INV_FILE.read_text())
-            if s.inventory:
-                print(d(f"  inventory loaded ({len(s.inventory)} items — type inv to see)"))
-        except Exception:
-            pass
-
-def save_inventory(s: S) -> None:
-    if s.inventory:
-        INV_FILE.write_text(json.dumps(s.inventory, ensure_ascii=False, indent=2))
 
 
 def main():
