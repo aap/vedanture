@@ -9,9 +9,23 @@ Provides:
   _push, _goto_lemma, _norm — navigation helpers
 """
 
-import json, csv, unicodedata, difflib
+import json, csv, unicodedata, difflib, textwrap
 from pathlib import Path
 from collections import defaultdict
+
+# ── line wrapping ─────────────────────────────────────────────────────────────
+
+WRAP_WIDTH: int = 72
+
+def set_wrap_width(n: int) -> None:
+    global WRAP_WIDTH
+    WRAP_WIDTH = max(20, n)
+
+def _wrap(text: str, indent: str = "  ") -> str:
+    """Wrap text to WRAP_WIDTH, with a fixed indent on every line."""
+    return textwrap.fill(text, width=WRAP_WIDTH,
+                         initial_indent=indent,
+                         subsequent_indent=indent)
 
 # ── terminal ──────────────────────────────────────────────────────────────────
 

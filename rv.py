@@ -42,6 +42,7 @@ from explorer import (
     _norm, _push, _goto_lemma,
     show_paradigm, show_concordance, show_stems, show_look,
     load_inventory, save_inventory,
+    _wrap, set_wrap_width,
 )
 
 # optional: chant rendering
@@ -477,12 +478,17 @@ def show_verse(ref, stanza):
         print(f"  {line}")
     print()
     for src, lines in stanza["trans"].items():
-        label = f"[{_TRANS_LABEL.get(src, src)}]"
-        pad   = " " * (_TRANS_W - len(label))
-        cont  = " " * (_TRANS_W + 2)
-        print(f"  {d(label)}{pad}  {lines[0]}")
-        for ln in lines[1:]:
-            print(f"  {cont}{ln}")
+        import textwrap as _tw
+        from explorer import WRAP_WIDTH
+        label      = f"[{_TRANS_LABEL.get(src, src)}]"
+        pad        = " " * (_TRANS_W - len(label))
+        prefix_vis = 2 + _TRANS_W + 2          # visible chars before content
+        cont_ind   = " " * prefix_vis
+        full       = " ".join(lines)
+        parts      = _tw.wrap(full, width=max(20, WRAP_WIDTH - prefix_vis)) or [full]
+        print(f"  {d(label)}{pad}  {parts[0]}")
+        for part in parts[1:]:
+            print(f"  {cont_ind}{part}")
 
 
 def show_words(words):
@@ -942,6 +948,13 @@ def handle(cmd: str, s: S) -> bool:
 
 
 def main():
+    args = sys.argv[1:]
+    for i, a in enumerate(args):
+        if a == "--width" and i+1 < len(args) and args[i+1].isdigit():
+            set_wrap_width(int(args[i+1]))
+        elif a.startswith("--width=") and a[8:].isdigit():
+            set_wrap_width(int(a[8:]))
+
     print(f"\n{b('Ṛgveda Explorer')}")
     print(d("  1.1  to open the first hymn  ·  find soma  to search  ·  h for help\n"))
     s = S()

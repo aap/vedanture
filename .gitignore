@@ -5,6 +5,11 @@ concordance.tsv
 gravity.json
 lemmas.tsv
 
+# gothic generated data — rebuild with build_corpus.py corpus/gothic
+corpus/gothic/paradigms/
+corpus/gothic/concordance.tsv
+corpus/gothic/gravity.json
+
 # python
 __pycache__/
 *.pyc
