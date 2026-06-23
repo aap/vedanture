@@ -270,21 +270,65 @@ def _lemma_norms(lemma_str: str) -> set[str]:
     return {_norm(p) for p in parts if _norm(p)}
 
 
+# Reverse indices over matched_lemmata + GRA, built once. Without these every
+# lemma→entry lookup rescans all 32k matched-lemmata, which makes a full static
+# export (10k lemmas) take ~17 min; with them it is near-instant.
+_ML_NORM_IDS = None   # _norm(lemma|surface) → set(eid)
+_EID_INFO    = None   # eid → (corpus_lemmata, total_token_count)
+_GRA_ORTH_IDS = None  # _norm(orth_iso) → set(eid)
+
+def _ml_indices():
+    global _ML_NORM_IDS, _EID_INFO
+    if _ML_NORM_IDS is None:
+        norm_ids   = defaultdict(set)
+        eid_lemmas = defaultdict(list)
+        eid_seen   = defaultdict(set)
+        for surface, data in _ml().items():
+            m = data.get("id_matched")
+            if not m:
+                continue
+            eids = m if isinstance(m, list) else [m]
+            dl   = data.get("lemma", "")
+            for key in (_norm(dl), _norm(surface)):
+                if key:
+                    norm_ids[key].update(eids)
+            for eid in eids:
+                if dl and dl not in eid_seen[eid]:
+                    eid_seen[eid].add(dl)
+                    eid_lemmas[eid].append(dl)
+        pars = paradigms()
+        eid_info = {}
+        for eid, lems in eid_lemmas.items():
+            total = sum(sum(f["count"] for f in pars.get(l, {}).get("forms", []))
+                        for l in lems)
+            eid_info[eid] = (lems, total)
+        _ML_NORM_IDS, _EID_INFO = dict(norm_ids), eid_info
+    return _ML_NORM_IDS, _EID_INFO
+
+
+def _gra_orth_index():
+    global _GRA_ORTH_IDS
+    if _GRA_ORTH_IDS is None:
+        d = defaultdict(set)
+        for eid, entry in _gra_idx().items():
+            k = _norm(_orth_iso(entry))
+            if k:
+                d[k].add(eid)
+        _GRA_ORTH_IDS = dict(d)
+    return _GRA_ORTH_IDS
+
+
 def _lookup_gra_ids(lemma_str: str) -> list[str]:
     """Return GRA xml:ids for a lemma string."""
-    ml    = _ml()
-    idx   = _gra_idx()
-    ids   = set()
+    norm_ids, _ = _ml_indices()
     norms = _lemma_norms(lemma_str)
-    for surface, data in ml.items():
-        m  = data.get("id_matched")
-        dl = data.get("lemma","")
-        if m and (_norm(dl) in norms or _norm(surface) in norms):
-            ids.update(m if isinstance(m, list) else [m])
+    ids   = set()
+    for nkey in norms:
+        ids |= norm_ids.get(nkey, set())
     if not ids:
-        for eid, entry in idx.items():
-            if _norm(_orth_iso(entry)) in norms:
-                ids.add(eid)
+        orth_ids = _gra_orth_index()
+        for nkey in norms:
+            ids |= orth_ids.get(nkey, set())
     return sorted(ids)
 
 
@@ -294,18 +338,8 @@ def _eid_corpus_info(eid: str) -> tuple[list[str], int]:
     Multiple corpus lemmata can map to the same GRA entry (e.g. variant
     spellings treated as one dictionary headword).
     """
-    seen, lemmata, total = set(), [], 0
-    for data in _ml().values():
-        ids = data.get("id_matched")
-        ids = ids if isinstance(ids, list) else ([ids] if ids else [])
-        if eid in ids:
-            lemma = data.get("lemma", "")
-            if lemma and lemma not in seen:
-                seen.add(lemma)
-                lemmata.append(lemma)
-                pd = paradigms().get(lemma, {})
-                total += sum(f["count"] for f in pd.get("forms", []))
-    return lemmata, total
+    _, eid_info = _ml_indices()
+    return eid_info.get(eid, ([], 0))
 
 
 def _eid_to_corpus_lemma(eid: str) -> str:
