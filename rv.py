@@ -45,9 +45,9 @@ from explorer import (
     _wrap, set_wrap_width,
 )
 
-# optional: chant rendering
+# chant rendering — vendored module + data, fully self-contained
 try:
-    sys.path.insert(0, str(Path.home() / "rgveda_audio"))
+    sys.path.insert(0, str(Path(__file__).parent))
     from ghanapati import processline, render_ascii as _render_ascii
     _CHANT_LINES = None   # ref "1.1.1" → [raw_line, ...]
 
@@ -55,7 +55,7 @@ try:
         global _CHANT_LINES
         if _CHANT_LINES is None:
             _CHANT_LINES = defaultdict(list)
-            src = Path.home() / "rgveda_audio/rv_lines.txt"
+            src = Path(__file__).parent / "corpus/chant/rv_lines.txt"
             with open(src) as f:
                 for line in f:
                     line = line.strip()
@@ -83,7 +83,7 @@ try:
 except Exception:
     _CHANT_AVAILABLE = False
     def show_chant(ref):
-        print("  chant module not available (needs ~/rgveda_audio/ghanapati.py)")
+        print("  chant data not available (corpus/chant/rv_lines.txt missing)")
 
 try:
     import readline
