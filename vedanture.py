@@ -563,6 +563,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+        mark = "" if code < 400 else "  ←"
+        print(f"  {code} {self.command:4} {self.path}{mark}", flush=True)
 
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
@@ -592,18 +594,38 @@ class Handler(BaseHTTPRequestHandler):
                 inv.pop(data.get("name"), None)
             save_inv(inv)
             return self._send(200, inv)
-        return self._send(404, {"error": "not found"})
+        return self._send(404, {"error": "no API route", "method": "POST",
+                                "path": u.path})
 
     def _static(self, path):
         if path in ("/", ""):
             path = "/index.html"
+        web_root = WEB.resolve()
         f = (WEB / path.lstrip("/")).resolve()
-        if not str(f).startswith(str(WEB.resolve())) or not f.is_file():
-            return self._send(404, "not found", "text/plain")
+        if not str(f).startswith(str(web_root)):
+            return self._send(403, f"403 forbidden — path escapes web root: {path!r}\n",
+                              "text/plain")
+        if not f.is_file():
+            looks_api = "/api/" in path or path.rstrip("/").endswith("/api")
+            hint = (
+                "\nThis looks like an /api/ request that fell through to the static\n"
+                "handler — your reverse proxy is not stripping the mount prefix.\n"
+                if looks_api else
+                "\nIf you are serving under a sub-path, the reverse proxy must strip\n"
+                "the prefix before proxying.\n")
+            msg = (f"404 not found\n\n"
+                   f"  request : {self.command} {self.path}\n"
+                   f"  resolved path : {path}\n"
+                   f"  looked for    : {f}\n"
+                   f"  web root      : {web_root}\n"
+                   f"{hint}"
+                   f"  nginx: location /<mount>/ {{ proxy_pass http://127.0.0.1:<port>/; }}"
+                   f"  (trailing slash on the target strips the prefix)\n")
+            return self._send(404, msg, "text/plain")
         self._send(200, f.read_bytes(), CTYPE.get(f.suffix.lower(), "application/octet-stream"))
 
     def log_message(self, *a):
-        pass
+        pass  # silence the default access log; we log concisely in _send()
 
 
 def main():
