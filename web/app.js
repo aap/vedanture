@@ -4,7 +4,10 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s).replace(/[&<>"]/g,
   c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-const API = "/api";
+// Resolve the API relative to where app.js is served, so the app works under
+// any mount path (e.g. nginx proxying /vedanture/ → the server), not only the
+// site root. Pair with `location /vedanture/ { proxy_pass http://127.0.0.1:PORT/; }`.
+const API = new URL("api", document.currentScript.src).href;
 let sheets = [];        // [{id, loc, history, future, doc, el}]
 let activeId = null;
 let lastActiveId = null;  // the sheet active before the current one
