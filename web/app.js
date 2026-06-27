@@ -19,6 +19,22 @@ async function fetchSheet(loc) {
   return r.json();
 }
 
+// corpus config (title, logo, sidebar index) — lets one front-end serve any corpus
+let CONFIG = { title: "", logo: "", search: "find … (/)",
+               index: [{ label: "index", loc: { kind: "index" } }] };
+async function loadConfig() {
+  try {
+    const c = await (await fetch(`${API}/config`)).json();
+    if (c && c.index) CONFIG = c;
+  } catch (e) { /* keep default */ }
+}
+function applyConfig() {
+  document.title = CONFIG.title ? `${CONFIG.title} — explorer` : "explorer";
+  $("#brand").innerHTML =
+    (CONFIG.logo ? `<span class="logo">${esc(CONFIG.logo)}</span> ` : "") + esc(CONFIG.title);
+  if (CONFIG.search) $("#search").placeholder = CONFIG.search;
+}
+
 async function invGet() {
   return (await fetch(`${API}/inventory`)).json();
 }
@@ -394,16 +410,13 @@ function sideOpen(loc) {
 function renderIndex() {
   const nav = $("#index");
   nav.innerHTML = "";
-  const add = (label, loc, sub) => {
+  for (const it of CONFIG.index) {
     const a = document.createElement("a");
-    a.className = "side-link" + (sub ? " sub" : "");
-    a.textContent = label;
-    a.addEventListener("click", () => sideOpen(loc));
+    a.className = "side-link" + (it.sub ? " sub" : "");
+    a.textContent = it.label;
+    a.addEventListener("click", () => sideOpen(it.loc));
     nav.appendChild(a);
-  };
-  add("Ṛgveda", { kind: "index" });
-  for (let n = 1; n <= 10; n++) add("RV " + n, { kind: "mandala", book: n }, true);
-  add("stem classes", { kind: "stems" });
+  }
 }
 
 // ── sidebar: inventory ──────────────────────────────────────────────────────
@@ -455,6 +468,10 @@ function bootLoc() {
   if (h) { try { return JSON.parse(h); } catch (e) {} }
   return { kind: "index" };
 }
-renderIndex();
-renderInv();
-openSheet(bootLoc());
+(async function boot() {
+  await loadConfig();
+  applyConfig();
+  renderIndex();
+  renderInv();
+  openSheet(bootLoc());
+})();
