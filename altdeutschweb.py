@@ -87,11 +87,18 @@ class AltdeutschSheets(Sheets):
         works = {wid: w for wid, w in wk.get("works", {}).items() if w["group"] == key}
         if not works:
             return self._doc(loc, label, [note(f"unknown group: {key}")])
-        items = [{"label": wid, "loc": {"kind": "work", "work": wid},
-                  "note": w["title"],
-                  "tag": "  ·  ".join(x for x in [w.get("time", ""),
-                                                  f"{len(w.get('sections', []))} sections"] if x)}
-                 for wid, w in sorted(works.items(), key=lambda kv: altdeutsch._work_sort_key(kv[1]))]
+        items = []
+        for wid, w in sorted(works.items(), key=lambda kv: altdeutsch._work_sort_key(kv[1])):
+            n_sec = len(w.get("sections", []))
+            # label carries sigil + title together (both get the link's
+            # accent color); tag is the dating alone, in its own accent
+            # color so it stands out; note is the section count, if any —
+            # this is the ordering the shared link-item template allows
+            # (label, tag, note are fixed visual slots)
+            items.append({"label": f"{wid}   {w['title']}",
+                          "loc": {"kind": "work", "work": wid},
+                          "tag": altdeutsch.format_time(w.get("time", "")),
+                          "note": f"{n_sec} sections" if n_sec > 1 else ""})
         return self._doc(loc, label, [head(label, f"{len(items)} works"),
                                       {"t": "links", "items": items, "wrap": True}])
 

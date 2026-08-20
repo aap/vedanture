@@ -31,7 +31,7 @@
   q             quit
 """
 
-import sys, json, csv
+import sys, re, json, csv
 from pathlib import Path
 from collections import defaultdict
 
@@ -278,6 +278,21 @@ def go_index(s: S) -> None:
     s.last_list = actions
 
 
+def format_time(time_str: str) -> str:
+    """A rough, human-legible century label for list views — '9. Jh.'
+    rather than the raw source field ('9.1', '8-9', 'M: 9.2; C: 10.2',
+    ...), which otherwise reads as a bare, unexplained number next to a
+    section count. Approximate by design, like the dating itself (see
+    parse_time in build_altdeutsch.py) — the half-century/manuscript
+    detail is dropped here, still visible on the work's own page."""
+    centuries = sorted({int(c) for c in re.findall(r"(\d+)(?:\.\d)?", time_str or "")})
+    if not centuries:
+        return ""
+    if len(centuries) == 1:
+        return f"{centuries[0]}. Jh."
+    return f"{centuries[0]}.–{centuries[-1]}. Jh."
+
+
 def _work_sort_key(w: dict):
     """Chronological where a date is known (approximate — see time_sort in
     build_altdeutsch.py), undated works last, alphabetical within either."""
@@ -300,8 +315,9 @@ def go_group(s: S, key: str) -> None:
         n_sec = len(w.get("sections", []))
         rank  = len(actions) + 1
         title = w["title"]
-        time  = w.get("time", "")
-        print(f"  {rank:>3}.  {b(wid):<{20+len(b(''))}}  {title:<38}  {d(time):<10}  {d(str(n_sec)+' sections')}")
+        time  = format_time(w.get("time", ""))
+        tag   = f"{n_sec} sections" if n_sec > 1 else ""
+        print(f"  {rank:>3}.  {b(wid):<{20+len(b(''))}}  {title:<38}  {hl(time):<10}  {d(tag)}")
         actions.append(lambda s, wid=wid: go_work(s, wid))
     print()
     s.last_list = actions
