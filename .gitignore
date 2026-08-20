@@ -10,6 +10,14 @@ corpus/gothic/paradigms/
 corpus/gothic/concordance.tsv
 corpus/gothic/gravity.json
 
+# altdeutsch — the whole corpus dir, not just the derived files. Unlike
+# corpus/gothic/, the DDD-AD source (tokens.tsv/verses.tsv/lexicon.json/
+# works.json included) is © HU Berlin, all rights reserved, no redistribution
+# license found — see docs/altdeutsch_spec.md §License. Do not commit any of
+# it; regenerate locally with build_altdeutsch.py from your own copy of the
+# source Excel export, then build_corpus.py corpus/altdeutsch for the rest.
+corpus/altdeutsch/
+
 # python
 __pycache__/
 *.pyc
