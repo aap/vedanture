@@ -138,7 +138,7 @@ sheets (just `edition`/`text`/`document`/`page`, no linguistic annotation
 | column | notes |
 |---|---|
 | `ref` | same key as tokens.tsv |
-| `text` | reconstructed by joining `edition` forms in token order (continuation tokens concatenate directly, no space; punctuation attaches to the preceding word) |
+| `text` | reconstructed by joining `edition` forms in token order — a manuscript word split across several analysis tokens (clitic/compound segmentation) contributes only once, from its `edition`-bearing token; continuation tokens (`edition` empty) add nothing further; punctuation attaches to the preceding word, no space |
 | `parallel` | aligned Latin line, where a `*_Latein` counterpart exists and lines up by `document`+`chapter`/`subchapter`; empty otherwise (best-effort, not guaranteed) |
 | `translation` | left empty — this corpus's `translation` column is a per-lemma gloss, not a verse translation; it goes into `lexicon.json` instead |
 

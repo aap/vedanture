@@ -147,6 +147,39 @@ class AltdeutschCorpus(Corpus):
         prefix = f"{work}.{section}."
         return [ref for ref in self.verse_rows() if ref.startswith(prefix)]
 
+    def adjacent_section(self, work: str, section: str, delta: int) -> str | None:
+        """The next/previous section id in works.json's stored order
+        (already chronological/numeric-aware — see _section_sort_key in
+        build_altdeutsch.py), or None past either end."""
+        sections = self.works().get("works", {}).get(work, {}).get("sections", [])
+        try:
+            i = sections.index(section)
+        except ValueError:
+            return None
+        j = i + delta
+        return sections[j] if 0 <= j < len(sections) else None
+
+    def adjacent_verse_ref(self, ref: str, delta: int) -> str | None:
+        """The next/previous verse ref, crossing into the adjacent section
+        of the same work at a section boundary. None past the last/first
+        verse of the whole work."""
+        work, section = ref.split(".")[0], ref.split(".")[1]
+        refs = self.section_refs(work, section)
+        try:
+            i = refs.index(ref)
+        except ValueError:
+            return None
+        j = i + delta
+        if 0 <= j < len(refs):
+            return refs[j]
+        nxt = self.adjacent_section(work, section, delta)
+        if nxt is None:
+            return None
+        nxt_refs = self.section_refs(work, nxt)
+        if not nxt_refs:
+            return None
+        return nxt_refs[0] if delta > 0 else nxt_refs[-1]
+
 
 _CORPUS = AltdeutschCorpus()
 
@@ -280,6 +313,10 @@ def go_work(s: S, work_id: str) -> None:
     if w is None:
         print(f"  unknown work: {work_id}")
         return
+    sections = w.get("sections", [])
+    if len(sections) == 1:          # nothing to choose — go straight in
+        go_section(s, work_id, sections[0])
+        return
     _push(s, {"kind": "work", "work": work_id})
     s.group, s.work = w["group"], work_id
     meta = "  ·  ".join(x for x in [w.get("form", ""), w.get("depository", ""), w.get("time", "")] if x)
@@ -287,7 +324,6 @@ def go_work(s: S, work_id: str) -> None:
     if meta:
         print(f"  {d(meta)}")
     print()
-    sections = w.get("sections", [])
     actions = []
     for sec in sections:
         n_v  = len(_CORPUS.section_refs(work_id, sec))
@@ -307,8 +343,9 @@ def go_section(s: S, work_id: str, section: str) -> None:
     s.work, s.section, s.refs, s.idx = work_id, section, refs, -1
     s.words, s.word = [], None
     print(f"\n{b(f'{work_id}.{section}')}  {d(str(len(refs))+' verses')}\n")
-    for ref in refs:
-        print(f"  {b(ref)}")
+    for i, ref in enumerate(refs, 1):
+        tail = ref.rsplit(".", 1)[-1]
+        print(f"  {b(str(i)+'.'):<5} {d(tail)}")
         print(_wrap(_CORPUS.verse_rows().get(ref, {}).get("text", ""), indent="    "))
         print()
     print(d("  type a verse number (e.g. 3), or n to step through"))
@@ -325,6 +362,26 @@ def go_verse(s: S, idx: int, _push_loc: bool = True) -> None:
     else: s.cur_loc = loc
     show_verse(s)
     print(d(f"  {len(s.words)} words  ·  x to expand  ·  n/p next/prev"))
+
+
+def step_verse(s: S, delta: int) -> None:
+    """Move to the next/previous verse, crossing into the adjacent
+    section of the same work at a section boundary (e.g. Monseer
+    Fragmente I -> II) rather than stopping there."""
+    new_idx = s.idx + delta
+    if 0 <= new_idx < len(s.refs):
+        go_verse(s, new_idx)
+        return
+    nxt_section = _CORPUS.adjacent_section(s.work, s.section, delta)
+    if nxt_section is None:
+        print("  beginning of work" if delta < 0 else "  end of work")
+        return
+    refs = _CORPUS.section_refs(s.work, nxt_section)
+    if not refs:
+        print("  beginning of work" if delta < 0 else "  end of work")
+        return
+    s.section, s.refs = nxt_section, refs
+    go_verse(s, 0 if delta > 0 else len(refs) - 1)
 
 
 def pick_word(s: S, n: int, _push_loc: bool = True) -> None:
@@ -459,9 +516,30 @@ def show_def(s: S, lemma: str) -> None:
 
 # ── ref parsing ────────────────────────────────────────────────────────────────
 
+# Several works have short (1-2 letter) sigla — C, H, L, P, W, ... — that
+# collide with this REPL's own single-letter shortcuts (p = previous verse,
+# w = word table, l = lemma concordance, c = concordance, h = help). A bare
+# command exactly matching one of these must stay a shortcut, never a work
+# lookup, or e.g. 'p' would silently teleport to the work "P" (Petruslied)
+# instead of stepping back a verse. Ref-like commands (anything with a dot,
+# e.g. 'P.1') are unaffected — those can never collide with a bare verb.
+_RESERVED_VERBS = {
+    "q", "quit", "exit", "groups", "index", "toc", "works",
+    "n", "next", "p", "prev", "previous", "r", "read",
+    "x", "expand", "words", "w",
+    "par", "paradigm", "conc", "concordance", "c", "lem", "lemma", "l",
+    "def", "dict", "look", "stems", "stem", "sc",
+    "back", "b", "keep", "k", "bookmark", "save", "load",
+    "drop", "remove", "del", "delete", "go", "visit", "inv", "inventory", "i",
+    "find", "search", "f", "help", "h", "?",
+}
+
+
 def _parse_ref(cmd: str) -> tuple[str, str, str] | None:
     """'Isidor.2.5' → ('Isidor','2','5')  ·  'Isidor.2' → ('Isidor','2','')  ·  'Isidor' → ('Isidor','','')"""
-    parts   = cmd.split(".")
+    parts = cmd.split(".")
+    if len(parts) == 1 and parts[0].lower() in _RESERVED_VERBS:
+        return None
     wk_map  = {w.lower(): w for w in _CORPUS.works().get("works", {})}
     work_id = wk_map.get(parts[0].lower())
     if work_id is None:
@@ -528,12 +606,10 @@ def handle(cmd: str, s: S) -> bool:
         go_index(s)
 
     elif verb in ("n", "next"):
-        if s.idx < len(s.refs)-1: go_verse(s, s.idx+1)
-        else: print("  end of section")
+        step_verse(s, +1)
 
     elif verb in ("p", "prev", "previous"):
-        if s.idx > 0: go_verse(s, s.idx-1)
-        else: print("  beginning of section")
+        step_verse(s, -1)
 
     elif verb in ("r", "read"):
         if s.ref: show_verse(s)

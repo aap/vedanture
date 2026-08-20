@@ -100,7 +100,10 @@ class AltdeutschSheets(Sheets):
         w = self.corpus.works().get("works", {}).get(wid)
         if w is None:
             return self._doc(loc, wid, [note(f"unknown work: {wid}")])
-        sub = "  ·  ".join(x for x in [w.get("form", ""), w.get("depository", ""),
+        sections = w.get("sections", [])
+        if len(sections) == 1:      # nothing to choose — go straight in
+            return self._section({"kind": "section", "work": wid, "section": sections[0]})
+        sub = "  ·  ".join(x for x in [wid, w.get("form", ""), w.get("depository", ""),
                                        w.get("time", "")] if x)
         items = [{"label": f"{wid}.{sec}",
                   "loc": {"kind": "section", "work": wid, "section": sec},
@@ -114,19 +117,30 @@ class AltdeutschSheets(Sheets):
         refs = self.corpus.section_refs(wid, sec)
         if not refs:
             return self._doc(loc, f"{wid}.{sec}", [note(f"no verses for {wid}.{sec}")])
-        items = [{"label": ref, "loc": {"kind": "verse", "ref": ref},
+        w     = self.corpus.works().get("works", {}).get(wid, {})
+        title = w.get("title", wid)
+        items = [{"label": ref.rsplit(".", 1)[-1], "loc": {"kind": "verse", "ref": ref},
                   "note": self.corpus.verse_rows().get(ref, {}).get("text", "")}
                  for ref in refs]
+        nav = {}
+        prv = self.corpus.adjacent_section(wid, sec, -1)
+        nxt = self.corpus.adjacent_section(wid, sec, +1)
+        if prv:
+            nav["prev"] = {"kind": "section", "work": wid, "section": prv}
+        if nxt:
+            nav["next"] = {"kind": "section", "work": wid, "section": nxt}
         return self._doc(loc, f"{wid}.{sec}",
-                         [head(f"{wid}.{sec}", f"{len(refs)} verses"),
-                          {"t": "links", "items": items, "wrap": True}])
+                         [head(title, f"{wid}.{sec}  ·  {len(refs)} verses"),
+                          {"t": "links", "items": items, "wrap": True}], nav=nav)
 
     def _verse(self, loc):
         ref = loc["ref"]
         row = self.corpus.verse_rows().get(ref)
         if row is None:
             return self._doc(loc, ref, [note(f"verse {ref} not found")])
-        blocks = [head(ref), {"t": "lines", "items": [row.get("text", "")]}]
+        wid   = ref.split(".")[0]
+        title = self.corpus.works().get("works", {}).get(wid, {}).get("title", wid)
+        blocks = [head(title, ref), {"t": "lines", "items": [row.get("text", "")]}]
         par = (row.get("parallel") or "").strip()
         if par:
             blocks.append({"t": "prose", "label": "lat", "spans": [sp(par)]})
@@ -135,15 +149,13 @@ class AltdeutschSheets(Sheets):
             blocks.append({"t": "sub", "spans": [sp(f"{len(words)} words")]})
             blocks.append({"t": "tokens", "items": [
                 self._token_item(ref, j, tok) for j, tok in enumerate(words, 1)]})
-        wid, sec = ref.split(".")[0], ref.split(".")[1]
-        refs = self.corpus.section_refs(wid, sec)
         nav = {}
-        if ref in refs:
-            i = refs.index(ref)
-            if i > 0:
-                nav["prev"] = {"kind": "verse", "ref": refs[i - 1]}
-            if i < len(refs) - 1:
-                nav["next"] = {"kind": "verse", "ref": refs[i + 1]}
+        prv = self.corpus.adjacent_verse_ref(ref, -1)
+        nxt = self.corpus.adjacent_verse_ref(ref, +1)
+        if prv:
+            nav["prev"] = {"kind": "verse", "ref": prv}
+        if nxt:
+            nav["next"] = {"kind": "verse", "ref": nxt}
         return self._doc(loc, ref, blocks, nav=nav)
 
     @staticmethod

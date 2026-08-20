@@ -282,6 +282,36 @@ def _natural_key(path: Path):
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", path.name)]
 
 
+_ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+
+
+def _roman_to_int(s: str) -> int | None:
+    s = s.upper()
+    if not s or any(ch not in _ROMAN_VALUES for ch in s):
+        return None
+    total, prev = 0, 0
+    for ch in reversed(s):
+        v = _ROMAN_VALUES[ch]
+        total += -v if v < prev else v
+        prev = max(prev, v)
+    return total
+
+
+def _section_sort_key(sec: str):
+    """Sections are plain numbers ('1', '2', ...), roman numerals (e.g.
+    Monseer Fragmente's 'I'..'XLI' — plain string sort would put 'II'
+    before 'IX' before 'V'), or filename-derived ids where chapter-based
+    numbering collided across the work (see compute_sections). Numeric
+    and roman forms sort by value; anything else falls back to alphabetic
+    so the order stays at least deterministic."""
+    if sec.isdigit():
+        return (0, int(sec), "")
+    r = _roman_to_int(sec)
+    if r is not None:
+        return (0, r, "")
+    return (1, 0, sec)
+
+
 # ── work discovery ────────────────────────────────────────────────────────────
 
 class WorkGroup:
@@ -530,13 +560,20 @@ def convert_work(wg: WorkGroup) -> tuple[list[dict], dict[str, list[str]]]:
 
 
 def render_verse_text(units: list[tuple[str, str, str]]) -> str:
+    """Join the diplomatic ('edition') spelling of each manuscript word in
+    order. A manuscript word occasionally gets split across several
+    analysis tokens (a clitic or compound segmented for tagging, e.g.
+    'nihabe' -> ni + habe); only the first of those tokens carries the
+    full diplomatic spelling in `edition` ('new'), the rest ('cont') are
+    already fully represented by it and contribute nothing further here —
+    concatenating their own `text` on top would double up the spelling
+    (e.g. 'nihabe' + 'habe' -> 'nihabehabe')."""
     parts: list[str] = []
     for mode, text, pos in units:
+        if mode == "cont":
+            continue
         if not parts:
             parts.append(text)
-            continue
-        if mode == "cont":
-            parts[-1] = parts[-1] + text
         elif pos == "punct":
             parts[-1] = parts[-1] + text
         else:
@@ -614,15 +651,12 @@ def build(src: Path, out: Path) -> None:
         for ref, units in verse_units.items():
             all_verse_units.setdefault(ref, []).extend(units)
 
-        # tokens are already in file-processing order (files sorted naturally,
-        # rows in sheet order), so first-seen order is correct reading order —
-        # section ids aren't reliably numeric (roman numerals, filename
-        # fallbacks), so we don't try to re-sort them
         sections = list(dict.fromkeys(t["ref"].split(".", 2)[1] for t in tokens))
         if len(sections) < len(wg.files):
             print(f"  ! {wg.work_id}: {len(wg.files)} files but only "
                   f"{len(sections)} distinct sections — possible section collision",
                   file=sys.stderr)
+        sections.sort(key=_section_sort_key)
         gk = group_key(wg.meta)
         groups_used.add(gk)
         works_meta[wg.work_id] = {
