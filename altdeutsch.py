@@ -147,6 +147,14 @@ class AltdeutschCorpus(Corpus):
         prefix = f"{work}.{section}."
         return [ref for ref in self.verse_rows() if ref.startswith(prefix)]
 
+    def section_token_count(self, work: str, section: str) -> int:
+        """Token count for a section — a truer size indicator than the
+        verse count, since many verses are a single short/punctuation-only
+        entry (the punctuation-bridging fallback for texts with no native
+        verse numbering can produce a lot of these)."""
+        vt = self.verse_tokens()
+        return sum(len(vt.get(ref, [])) for ref in self.section_refs(work, section))
+
     def adjacent_section(self, work: str, section: str, delta: int) -> str | None:
         """The next/previous section id in works.json's stored order
         (already chronological/numeric-aware — see _section_sort_key in
@@ -342,9 +350,9 @@ def go_work(s: S, work_id: str) -> None:
     print()
     actions = []
     for sec in sections:
-        n_v  = len(_CORPUS.section_refs(work_id, sec))
-        rank = len(actions) + 1
-        print(f"  {rank:>4}.  {b(f'{work_id}.{sec}'):<{28+len(b(''))}}  {d(str(n_v)+' verses')}")
+        n_tok = _CORPUS.section_token_count(work_id, sec)
+        rank  = len(actions) + 1
+        print(f"  {rank:>4}.  {b(f'{work_id}.{sec}'):<{28+len(b(''))}}  {d(str(n_tok)+' tokens')}")
         actions.append(lambda s, sec=sec: go_section(s, work_id, sec))
     print()
     s.last_list = actions

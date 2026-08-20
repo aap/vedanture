@@ -114,7 +114,7 @@ class AltdeutschSheets(Sheets):
                                        w.get("time", "")] if x)
         items = [{"label": f"{wid}.{sec}",
                   "loc": {"kind": "section", "work": wid, "section": sec},
-                  "note": f"{len(self.corpus.section_refs(wid, sec))} verses"}
+                  "note": f"{self.corpus.section_token_count(wid, sec)} tokens"}
                  for sec in w.get("sections", [])]
         return self._doc(loc, wid, [head(w["title"], sub),
                                     {"t": "links", "items": items, "wrap": True}])
