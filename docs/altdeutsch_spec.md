@@ -11,31 +11,44 @@ in how the data is distributed — see §License).
 
 ## §License
 
-The DDD-AD corpus is **not** openly licensed. Its own access page states:
+The DDD-AD corpus (v1.2, the version converted here) is openly licensed:
+**CC BY-NC-SA 3.0** (Attribution–NonCommercial–ShareAlike).
 
-> Copyright (c) 2023, Institut für deutsche Sprache und Linguistik, HU
-> Berlin; alle Rechte vorbehalten [all rights reserved]
-> — https://www.deutschdiachrondigital.de/rea/zugang/ (checked 2026-08)
+> Deutsch Diachron Digital – Referenzkorpus Altdeutsch, v1.2 (2023),
+> Humboldt-Universität zu Berlin
+> DOI: [10.34644/laudatio-dev-MiXVDnMB7CArCQ9CABmW](https://doi.org/10.34644/laudatio-dev-MiXVDnMB7CArCQ9CABmW)
+> License: [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/)
+> — https://www.laudatio-repository.org/browse/corpus/MiXVDnMB7CArCQ9CABmW/corpora
+> (checked 2026-08-25)
 
-"Free to use without registration" there describes browsing their own
-ANNIS search interface, not a grant to redistribute exports. No LICENSE,
-README, or citation file ships with the Excel or graphANNIS downloads
-either. Treat both the raw Excel export and everything
-`build_altdeutsch.py` derives from it as **not for redistribution** —
-specifically:
+That's the corpus's own publication record on LAUDATIO, the repository it
+is deposited in — its `corpusPublicationLicense` field, pinned to this
+exact export (`DDD-AD-1.2-xlsx_1-2.zip`, the same zip `build_altdeutsch.py`
+reads). It supersedes an earlier finding here that turned out to be the
+wrong page for this question:
 
-- **Nothing under `corpus/altdeutsch/` is committed to this repo.** The
-  whole directory is gitignored (unlike `corpus/gothic/`, where the
-  tracked `tokens.tsv`/etc. *are* the intended distribution mechanism).
-- To run this module on another machine, get the source Excel export onto
-  it yourself (outside of git — e.g. `rsync`/`scp` directly, or a copy of
-  `corpus/altdeutsch/` once already converted) and run the build steps
-  below locally there. Don't publish either the raw export or the
-  converted `tokens.tsv`/`verses.tsv`/`lexicon.json`/`works.json`.
-- Before serving `altdeutschweb.py` publicly (the way `vedanture`/
-  `gothicweb.py` are), that's worth a deliberate decision, not a default —
-  either confirm reuse terms with HU Berlin or keep the deployment
-  access-restricted.
+> ~~Copyright (c) 2023, Institut für deutsche Sprache und Linguistik, HU
+> Berlin; alle Rechte vorbehalten [all rights reserved]~~
+> — https://www.deutschdiachrondigital.de/rea/zugang/
+
+That text is the generic footer copyright notice on
+deutschdiachrondigital.de (the project's own website), not a statement
+about the corpus data's license — the actual publication terms are the
+LAUDATIO record above.
+
+Practically, CC BY-NC-SA 3.0 permits redistributing and adapting the
+corpus (including this conversion), provided that use is: attributed to
+Humboldt-Universität zu Berlin, non-commercial, and — if redistributed —
+carries the same license (share-alike). Given that:
+
+- `corpus/altdeutsch/` is still gitignored here for now — not a license
+  requirement, just not yet vendored into this repo. If/when it is, the
+  attribution above should travel with it (e.g. as a `LICENSE`/`NOTICE`
+  file alongside it, per the share-alike term).
+- `altdeutschweb.py`'s index page (`_index()`) and `altdeutsch.py`'s
+  startup banner both display the same attribution, so serving the
+  explorer no longer needs a password on licensing grounds — that's now
+  purely the operator's own call (e.g. wanting a private instance).
 
 ### Getting the source data
 
@@ -44,9 +57,8 @@ The Excel export used here (DDD-AD v1.2) currently lives, extracted, at
 there's also a graphANNIS/GraphML export at `/u/aap/lib/ad/graphannis-v1.2.zip`
 (not what `build_altdeutsch.py` reads, but the same underlying corpus, in
 case a future conversion wants richer structure than the flat Excel sheets
-carry). To re-obtain it or check current terms, the project's own page is
-https://www.deutschdiachrondigital.de/rea/zugang/ — that's also where the
-license wording in §License above was checked.
+carry). To re-obtain it or check current terms, see the LAUDATIO record
+linked in §License above, or https://www.deutschdiachrondigital.de/rea/.
 
 ---
 

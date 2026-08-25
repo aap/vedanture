@@ -75,10 +75,13 @@ class AltdeutschSheets(Sheets):
         items = [{"label": g["label"], "loc": {"kind": "group", "group": g["key"]},
                   "note": g["key"], "tag": f"{counts.get(g['key'], 0)} works"}
                  for g in groups if counts.get(g["key"])]
+        credit = note("Text: Deutsch Diachron Digital – Referenzkorpus Altdeutsch "
+                      "(DDD-AD) v1.2, Humboldt-Universität zu Berlin — licensed "
+                      "CC BY-NC-SA 3.0 (creativecommons.org/licenses/by-nc-sa/3.0)")
         return self._doc(loc, "Altdeutsch",
                          [head("Referenzkorpus Altdeutsch",
                                f"{len(works)} works  ·  {len(items)} dialect groups"),
-                          {"t": "links", "items": items}])
+                          {"t": "links", "items": items}, credit])
 
     def _group(self, loc):
         key = loc["group"]

@@ -785,7 +785,9 @@ def main():
             set_wrap_width(int(a[8:]))
 
     print(f"\n{b('Altdeutsch Explorer')}")
-    print(d("  groups  to list dialects  ·  Isidor.2.5  to open a verse  ·  find quedan  to search\n"))
+    print(d("  groups  to list dialects  ·  Isidor.2.5  to open a verse  ·  find quedan  to search"))
+    print(d("  Deutsch Diachron Digital – Referenzkorpus Altdeutsch v1.2, Humboldt-Universität zu Berlin"))
+    print(d("  CC BY-NC-SA 3.0 · creativecommons.org/licenses/by-nc-sa/3.0\n"))
     s = S()
     load_inventory(s)
     tty = sys.stdout.isatty()
