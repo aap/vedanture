@@ -71,9 +71,12 @@ class GothicSheets(Sheets):
             items.append({"label": bk, "loc": {"kind": "book", "book": bk},
                           "note": names.get(bk, bk),
                           "tag": f"{n_ch} ch · {present[bk]} v"})
+        credit = note("Text: Project Wulfila, University of Antwerp — Gothic text/dictionary "
+                      "in the public domain; annotations freely available for non-commercial "
+                      "use with attribution (wulfila.be/project/copyright)")
         return self._doc(loc, "Gothic",
                          [head("Gothic Bible", f"{len(items)} books"),
-                          {"t": "links", "items": items}])
+                          {"t": "links", "items": items}, credit])
 
     def _book(self, loc):
         bk = loc["book"]

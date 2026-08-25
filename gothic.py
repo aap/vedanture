@@ -752,7 +752,9 @@ def main():
             set_wrap_width(int(a[8:]))
 
     print(f"\n{b('Gothic Explorer')}")
-    print(d("  books  to list texts  ·  Jn.19.3  to open a verse  ·  find wulfs  to search\n"))
+    print(d("  books  to list texts  ·  Jn.19.3  to open a verse  ·  find wulfs  to search"))
+    print(d("  Text: Project Wulfila, University of Antwerp — public domain text/dictionary,"))
+    print(d("  non-commercial annotations with attribution · wulfila.be/project/copyright\n"))
     s = S()
     load_inventory(s)
     tty = sys.stdout.isatty()

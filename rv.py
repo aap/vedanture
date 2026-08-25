@@ -990,7 +990,9 @@ def main():
             set_wrap_width(int(a[8:]))
 
     print(f"\n{b('Ṛgveda Explorer')}")
-    print(d("  1.1  to open the first hymn  ·  find soma  to search  ·  h for help\n"))
+    print(d("  1.1  to open the first hymn  ·  find soma  to search  ·  h for help"))
+    print(d("  Text: VedaWeb / C-SALT project, University of Cologne — CC-licensed,"))
+    print(d("  terms per source · vedaweb.uni-koeln.de\n"))
     s = S()
     load_inventory(s)
     tty = sys.stdout.isatty()

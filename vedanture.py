@@ -112,8 +112,11 @@ class RVSheets(Sheets):
     def _index(self, loc):
         items = [{"label": f"RV {n}", "loc": {"kind": "mandala", "book": n},
                   "note": rv.BOOK_LABEL.get(n, "")} for n in range(1, 11)]
+        credit = note("Text: VedaWeb / C-SALT project, Cologne Center for eHumanities, "
+                      "University of Cologne — CC-licensed, terms per source "
+                      "(vedaweb.uni-koeln.de)")
         return self._doc(loc, "Ṛgveda",
-                         [head("Ṛgveda", "10 maṇḍalas"), {"t": "links", "items": items}])
+                         [head("Ṛgveda", "10 maṇḍalas"), {"t": "links", "items": items}, credit])
 
     def _mandala(self, loc):
         book = int(loc["book"])
